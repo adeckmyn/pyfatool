@@ -20,6 +20,7 @@ pyfatool <options> <FA file>
 * `-H` : FA header sector
 * `-q` : check whether specific humidity is spectral (alaro) or grid point (arome)
 * `-F` : Fix a single frame parameter that causes older compilations to fail with recent Arpège LBC's. **NOTE: this is the only option that modifies the file!**
+* `-D` : return domain size
 * `-h` : help
 
 

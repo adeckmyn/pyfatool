@@ -43,6 +43,11 @@ parser.add_argument('-d',# 'date/time',
     help="forecast date and lead time",
     action = 'store_true',
     )
+# TODO: add options "D1", "D2" for more details
+parser.add_argument('-D',# 'domain',
+    help="model domain",
+    action = 'store_true',
+    )
 
 args = parser.parse_args()
 
@@ -98,7 +103,9 @@ def get_header(fafile):
         header['index_list'] = [[ ilist[i]-1,llist[i] ] for i in range(n_index+1)  ]
     return(header)
 
-def get_fieldnames(fafile, header):
+def get_fieldnames(fafile, header=None):
+    if header is None:
+        header = get_header(fafile)
     fieldnames = []
     nind = len(header['index_list'])
     for i in range(nind):
@@ -108,8 +115,10 @@ def get_fieldnames(fafile, header):
             list(struct.unpack("16s"*ind[1], fafile.read(16*ind[1]))) ]
     return(fieldnames)
 
-def get_locations(fafile, header):
+def get_locations(fafile, header=None):
     # return byte location and data length for all fields
+    if header is None:
+        header = get_header(fafile)
     nind = len(header['index_list'])
     data_loc = []
     data_len = []
@@ -124,7 +133,9 @@ def get_locations(fafile, header):
         data_len = data_len + [ x*8 for x in sec3[::2] ]
     return(data_loc, data_len)
 
-def get_list(fafile, header):
+def get_list(fafile, header=None):
+    if header is None:
+        header = get_header(fafile)
     fieldnames = get_fieldnames(fafile, header)
     dloc, dlen = get_locations(fafile, header)
     hole_indices = [i for i in range(header['nrecords']) if fieldnames[i]==' '*16]
@@ -137,8 +148,10 @@ def get_list(fafile, header):
     hlist = { 'h'+str(i+1):[dloc[i],dlen[i]] for i in hole_indices }
     return flist, hlist
 
-def list_fields(fafile, header):
+def list_fields(fafile, header=None):
     # from file header: section size in 8-byte words
+    if header is None:
+        header = get_header(fafile)
     flist, hlist = get_list(fafile, header)
     ncol = 3
     fn = list(flist.keys())
@@ -151,7 +164,9 @@ def read_data_field(fafile, dloc):
     fafile.seek(dloc[0])
     return(fafile.read(dloc[1]))
 
-def get_datetime(fafile, header):
+def get_datetime(fafile, header=None):
+    if header is None:
+        header = get_header(fafile)
     flist, hlist = get_list(fafile, header)
     df1 = struct.unpack(">11Q", read_data_field(fafile, flist['DATE-DES-DONNEES']))
     # fcdate = datetime.datetime(df1[0], df1[1], df1[2], df1[3], df1[4], 0)
@@ -184,7 +199,9 @@ def get_datetime(fafile, header):
 #  print("{0}-{1}-{2}T{3}:{4}Z + {5}".format(yyyy, mm, dd, rr, MM, lt))
     print(fcdate.strftime("%Y-%m-%dT%H:%MZ") + lt)
 
-def fix_frame(fafile, frame_name="CADRE-REDPOINPOL", pos=0, new_value=10):
+def fix_frame(fafile, header=None, frame_name="CADRE-REDPOINPOL", pos=0, new_value=10):
+    if header is None:
+        header = get_header(fafile)
     flist, hlist = get_list(fafile, header)
     fafile.seek(flist[frame_name][0] + pos*8)
     old_value = struct.unpack(">1Q", fafile.read(8) )
@@ -201,15 +218,68 @@ def find_in_list(flist, templates):
     # template may be e.g. [ "^S[0-9]{3}TEMPERATURE", "^SURFPREC" ]
     return(matching)
 
-def check_type(fafile, field="S001HUMI.SPECIFI"):
+def check_type(fafile, header=None, field="S001HUMI.SPECIFI"):
+    if header is None:
+        header = get_header(fafile)
     flist, hlist = get_list(fafile, header)
-    fafile.seek(flist[field][0])
+    try:
+        fafile.seek(flist[field][0])
+    except:
+        print(f"Field {field} not found.")
+        return
     ftype = struct.unpack(">%iQ"%(2), fafile.read(16) )
     # second integer = 0 means GP, !=0 means SPEC
     if ftype[1] == 0:
-        return("gp")
+        result = "gp"
     else:
-        return("sp")
+        result = "sp"
+    print(result)
+
+def get_domain(fafile, header=None):
+    if header is None:
+        header = get_header(fafile)
+    flist, hlist = get_list(fafile, header)
+    # CADRE_DIMENSIONS for grid size & spectral truncation
+    #fafile.seek(flist['CADRE_DIMENSIONS'][0])
+    nval = 5
+    fmt = ">%dq" % nval
+    dims = struct.unpack(fmt, read_data_field(fafile, flist['CADRE-DIMENSIONS']))
+    result = {
+            'NSMAX':dims[0],
+            'NDGL':dims[1],
+            'NDLON':dims[2],
+            'NFLEVG':dims[3],
+            }
+    if dims[4] < 0:
+        # LAM file
+        result['lam'] = True
+        result['NMSMAX'] = -dims[4]
+    else:
+        # Arpege file
+        result['lam'] = False
+        result['NSTTYP'] = dims[4]
+
+    if result['lam']:
+        nval = 8 + 2*(result['NSMAX'] + 2)
+        fmt = ">%dq" % nval
+        dims2 = struct.unpack(fmt, read_data_field(fafile, flist['CADRE-REDPOINPOL']))
+        result['SPTRUNC'] = dims2[0]
+        # result['E'] = dims2[1]
+        result['NDLUX'] = dims2[2]
+        result['NDLUN'] = dims2[3]
+        result['NDGUX'] = dims2[4]
+        result['NDGUN'] = dims2[5]
+        result['IX'] = dims2[6]
+        result['IY'] = dims2[7]
+
+        nval = 18
+        fmt = ">%dd" % nval
+        proj = struct.unpack(fmt, read_data_field(fafile, flist['CADRE-SINLATITUD']))
+        #print(proj)
+
+    # TODO: print a *clean & readable* summary
+    print(result)
+
 
 def main():
     fname = args.fafile
@@ -225,8 +295,6 @@ def main():
         if args.p:
             print(f"Creation: {header['creation_date']:08d} : {header['creation_time']:06d}")
             print(f"Last mod: {header['last_mod_date']:08d} : {header['last_mod_time']:06d}")
-        if args.l:
-            list_fields(fafile, header)
         if args.s:
             expected_size = 8 * header['sector_size'] * header['nsectors']
             real_size = os.stat(fname).st_size
@@ -235,14 +303,17 @@ def main():
                 exit(1)
             else:
                 print(f"OK : size {real_size}")
+        if args.l:
+            list_fields(fafile, header)
         if args.d:
             get_datetime(fafile, header)
         if args.q:
-            print(check_type(fafile, 'S001HUMI.SPECIFI'))
+            check_type(fafile, header, 'S001HUMI.SPECIFI')
         if args.F:
-            fix_frame(fafile, 'CADRE-REDPOINPOL', 0, 10)
+            fix_frame(fafile, header, 'CADRE-REDPOINPOL', 0, 10)
+        if args.D:
+            get_domain(fafile, header)
 
 if __name__ == "__main__":
-    # print(args)
     main()
 
