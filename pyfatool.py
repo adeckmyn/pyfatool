@@ -11,9 +11,12 @@ import re
 
 parser = argparse.ArgumentParser(prog="pyfatool")
 current_wdir = os.getcwd()
+__version__ = "0.1.1"
+__date__ = "24/04/2025"
 
 parser.add_argument("fafile", 
-        help="/path/to/file(s)",
+        help="/path/to/file",
+        nargs = "?",
         )
 parser.add_argument('-p', # 'prod',
     help="production date/time",
@@ -35,20 +38,24 @@ parser.add_argument('-F',
     help="fix frame parameter in recent Arpege LBC's",
     action = 'store_true',
     )
-parser.add_argument('-q',# 'humi',
+parser.add_argument('-q',  # 'humi'
     help="check whether specific humidity is spectral or grid point",
     action = 'store_true',
     )
-parser.add_argument('-d',# 'date/time',
+parser.add_argument('-d',  # 'date/time'
     help="forecast date and lead time",
     action = 'store_true',
     )
 # TODO: add options "D1", "D2" for more details
-parser.add_argument('-D',# 'domain',
+parser.add_argument('-D',  # 'domain'
     help="model domain",
     action = 'store_true',
     )
 
+parser.add_argument('-v',  # 'version'
+    help="version",
+    action = 'store_true',
+    )
 args = parser.parse_args()
 
 def get_header(fafile):
@@ -282,14 +289,23 @@ def get_domain(fafile, header=None):
 
 
 def main():
+    if args.v:
+        print(f"pyfatool version: {__version__} ({__date__})")
+        return
     fname = args.fafile
+    if fname is None:
+        print(f"ERROR: no file name given.")
+        parser.print_usage()
+        return
     if not os.path.exists(fname):
         print(f"ERROR: file {fname} not found.")
         exit(1)
-
-    with open(fname, 'rb+') as fafile:
+    if args.F:
+        fmode = 'rb+'
+    else:
+        fmode = 'rb'
+    with open(fname, fmode) as fafile:
         header = get_header(fafile)
-
         if args.H:
             print(header)
         if args.p:
