@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 # basic FA utilities combined in 1 call
-# Alex Deckmyn, KMI, 2024
+# Alex Deckmyn, KMI, 2024-2025
 import sys
 import struct
 import os
@@ -11,8 +11,16 @@ import re
 
 parser = argparse.ArgumentParser(prog="pyfatool")
 current_wdir = os.getcwd()
-__version__ = "0.1.1"
-__date__ = "24/04/2025"
+__version__ = "0.1.2"
+__date__ = "09/12/2025"
+
+# Which frame parameters may be modified in a consistent way?
+# besides the date, only a few others are allowed.
+# 
+MODLIST = {
+        'ixy'   : [ 'CADRE-REDPOINPOL', [6, 7] ],
+        'sptrunc': [ 'CADRE-REDPOINPOL', [0] ],
+        }
 
 parser.add_argument("fafile", 
         help="/path/to/file",
@@ -34,9 +42,17 @@ parser.add_argument('-H',# 'header',
     help="FA header",
     action = 'store_true',
     )
-parser.add_argument('-F',
-    help="fix frame parameter in recent Arpege LBC's",
-    action = 'store_true',
+parser.add_argument('--mp',
+    nargs = 2,
+    help="Modify frame parameter (only a few allowed)",
+    )
+parser.add_argument('--mn',
+    nargs = 2,
+    help="Modify field names",
+    )
+parser.add_argument('--md',
+    nargs = 2,
+    help="Modify date",
     )
 parser.add_argument('-q',  # 'humi'
     help="check whether specific humidity is spectral or grid point",
@@ -52,7 +68,7 @@ parser.add_argument('-D',  # 'domain'
     action = 'store_true',
     )
 
-parser.add_argument('-v',  # 'version'
+parser.add_argument('--version',  # 'version'
     help="version",
     action = 'store_true',
     )
@@ -206,17 +222,6 @@ def get_datetime(fafile, header=None):
 #  print("{0}-{1}-{2}T{3}:{4}Z + {5}".format(yyyy, mm, dd, rr, MM, lt))
     print(fcdate.strftime("%Y-%m-%dT%H:%MZ") + lt)
 
-def fix_frame(fafile, header=None, frame_name="CADRE-REDPOINPOL", pos=0, new_value=10):
-    if header is None:
-        header = get_header(fafile)
-    flist, hlist = get_list(fafile, header)
-    fafile.seek(flist[frame_name][0] + pos*8)
-    old_value = struct.unpack(">1Q", fafile.read(8) )
-    print(f"old_value: {old_value}")
-    print(f"new_value: {new_value}")
-    fafile.seek(flist["CADRE-REDPOINPOL"][0] + pos*8)
-    fafile.write(struct.pack(">1Q", new_value) )
-
 def find_in_list(flist, templates):
     # return a list (with byte location) of all fields matching a list of templates
     matching = { k:v for k,v in flist.items() if any ( re.search(ttt, k) for ttt in templates ) }
@@ -287,9 +292,41 @@ def get_domain(fafile, header=None):
     # TODO: print a *clean & readable* summary
     print(result)
 
+def modify_par(fafile, header, arg):
+    if header is None:
+        header = get_header(fafile)
+    flist, hlist = get_list(fafile, header)
+    print(arg)
+    par = arg[0]
+    new_value = arg[1]
+    print(f"MOD: {par} = {new_value}")
+    mod_field = MODLIST[par][0]
+    mod_loc = MODLIST[par][1]
+    mod_format = ">1Q"
+    for pos in mod_loc:
+        fafile.seek(flist[mod_field][0] + pos*8)
+        old_value = struct.unpack(mod_format, fafile.read(8) )
+        print(f"old_value: {old_value}")
+        print(f"new_value: {new_value}")
+        fafile.seek(flist[mod_field][0] + pos*8)
+        fafile.write(struct.pack(mod_format, int(new_value)) )
+
+def modify_name(fafile, header, arg):
+    print(f"Renaming fields not implemented yet. Sorry.")
+    exit(1)
+    if header is None:
+        header = get_header(fafile)
+    flist, hlist = get_list(fafile, header)
+    print(arg)
+    loc = flist[old_name]
+
+def modify_date(fafile, header, arg):
+    print(f"MOD DATE not implemented yet. Sorry.")
+    exit(1)
+
 
 def main():
-    if args.v:
+    if args.version:
         print(f"pyfatool version: {__version__} ({__date__})")
         return
     fname = args.fafile
@@ -300,7 +337,7 @@ def main():
     if not os.path.exists(fname):
         print(f"ERROR: file {fname} not found.")
         exit(1)
-    if args.F:
+    if args.mp or args.mn or args.md:
         fmode = 'rb+'
     else:
         fmode = 'rb'
@@ -325,10 +362,15 @@ def main():
             get_datetime(fafile, header)
         if args.q:
             check_type(fafile, header, 'S001HUMI.SPECIFI')
-        if args.F:
-            fix_frame(fafile, header, 'CADRE-REDPOINPOL', 0, 10)
         if args.D:
             get_domain(fafile, header)
+        if args.mp:
+            modify_par(fafile, header, args.mp)
+        if args.mn:
+            modify_name(fafile, header, args.mn)
+        if args.md:
+            modify_date(fafile, header, args.md)
+
 
 if __name__ == "__main__":
     main()
