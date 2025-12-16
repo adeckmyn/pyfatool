@@ -44,7 +44,7 @@ parser.add_argument('-H',# 'header',
     )
 parser.add_argument('--mp',
     nargs = 2,
-    help="Modify frame parameter (only a few allowed)",
+    help="Modify frame parameter (only 'ixy' or 'sptrunc' allowed)",
     )
 parser.add_argument('--mn',
     nargs = 2,
