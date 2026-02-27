@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 # basic FA utilities combined in 1 call
-# Alex Deckmyn, KMI, 2024-2025
+# © Alex Deckmyn, KMI, 2024-2026
 import sys
 import struct
 import os
@@ -11,12 +11,15 @@ import re
 
 parser = argparse.ArgumentParser(prog="pyfatool")
 current_wdir = os.getcwd()
-__version__ = "0.1.2"
-__date__ = "09/12/2025"
+__version__ = "0.1.3"
+__date__ = "27-02-2026"
 
 # Which frame parameters may be modified in a consistent way?
 # besides the date, only a few others are allowed.
-# 
+# Obviously, they should not influence data size etc.
+# Changing grid size etc. can not be allowed.
+# For now: default spectral truncation and size of interpolation zone
+# TODO: changing date/time
 MODLIST = {
         'ixy'   : [ 'CADRE-REDPOINPOL', [6, 7] ],
         'sptrunc': [ 'CADRE-REDPOINPOL', [0] ],
@@ -52,7 +55,7 @@ parser.add_argument('--mn',
     )
 parser.add_argument('--md',
     nargs = 2,
-    help="Modify date",
+    help="Modify date (not yet implemented)",
     )
 parser.add_argument('-q',  # 'humi'
     help="check whether specific humidity is spectral or grid point",
@@ -62,7 +65,7 @@ parser.add_argument('-d',  # 'date/time'
     help="forecast date and lead time",
     action = 'store_true',
     )
-# TODO: add options "D1", "D2" for more details
+# TODO: add options "D1", "D2" for more details?
 parser.add_argument('-D',  # 'domain'
     help="model domain",
     action = 'store_true',
@@ -293,8 +296,6 @@ def get_domain(fafile, header=None):
     print(result)
 
 def modify_par(fafile, header, arg):
-    if header is None:
-        header = get_header(fafile)
     flist, hlist = get_list(fafile, header)
     print(arg)
     par = arg[0]
@@ -312,13 +313,37 @@ def modify_par(fafile, header, arg):
         fafile.write(struct.pack(mod_format, int(new_value)) )
 
 def modify_name(fafile, header, arg):
-    print(f"Renaming fields not implemented yet. Sorry.")
-    exit(1)
-    if header is None:
-        header = get_header(fafile)
-    flist, hlist = get_list(fafile, header)
-    print(arg)
-    loc = flist[old_name]
+    flist = get_fieldnames(fafile, header)
+    oldname = arg[0].ljust(16)
+    newname = arg[1].ljust(16)
+    print(f"Renaming {oldname} to {newname}")
+    if newname == oldname:
+        print("nothing to do.")
+        return
+
+    if newname in flist:
+        print(f"ERROR: field {newname} already exists.")
+        return
+
+    try:
+        i = flist.index(oldname)
+    except ValueError:
+        print(f"ERROR: {oldname} not found.")
+        return
+
+    lsec = i // header['n_rec_seq']
+    lloc = i % header['n_rec_seq']
+    # print(f"found {oldname} at index {i}. lsec={lsec} lloc={lloc}")
+    # go to the right place in the name sector
+    ind = header['index_list'][lsec]
+    fafile.seek(ind[0] * 8 * header['sector_size'] + lloc * 16)
+    fafile.write(newname.encode('ascii'))
+    if newname == ' '*16:
+        # also add 1 to "hole" counter!
+        print(f"Removing {oldname}.")
+        fafile.seek(20*8)
+        fafile.write(struct.pack(">1Q", header['nholes']+1))
+
 
 def modify_date(fafile, header, arg):
     print(f"MOD DATE not implemented yet. Sorry.")
